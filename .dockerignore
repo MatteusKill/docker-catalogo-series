@@ -1,0 +1,9 @@
+.git
+.gitignore
+.env
+context-ia.md
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/.venv
+**/venv

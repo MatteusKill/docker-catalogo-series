@@ -1,11 +1,90 @@
 services:
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    volumes:
+      - ./frontend/src:/var/www/html:ro
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      php:
+        condition: service_healthy
+    networks:
+      - frontend
+    restart: unless-stopped
+
+  php:
+    build:
+      context: ./frontend
+    environment:
+      API_BASE_URL: http://api:8000
+    volumes:
+      - ./frontend/src:/var/www/html:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - frontend
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "SCRIPT_NAME=/ping SCRIPT_FILENAME=/ping REQUEST_METHOD=GET cgi-fcgi -bind -connect 127.0.0.1:9000 >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
   api:
     build:
       context: ./api
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: ${MYSQL_DATABASE:-catalogo_series}
+      DB_USER: ${MYSQL_USER:-catalogo_user}
+      DB_PASSWORD: ${MYSQL_PASSWORD:-catalogo_password}
+    depends_on:
+      mysql:
+        condition: service_healthy
+    expose:
+      - "8000"
     networks:
-      - backend_network
+      - backend
+      - banco_dados
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
 
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-catalogo_series}
+      MYSQL_USER: ${MYSQL_USER:-catalogo_user}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-catalogo_password}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_password}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./database/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - banco_dados
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h localhost -u root -p\"$${MYSQL_ROOT_PASSWORD}\" --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
 
 networks:
-  backend_network:
-  frontend_network:
+  frontend:
+  backend:
+    internal: true
+  banco_dados:
+    internal: true
+
+volumes:
+  mysql_data:
